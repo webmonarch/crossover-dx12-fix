@@ -1,0 +1,16 @@
+# Proprietary binaries — Apple (GPTK) and CodeWeavers (CrossOver).
+# Not ours to redistribute; the DMG also exceeds GitHub's 100 MB file limit.
+# Get GPTK yourself from https://developer.apple.com/games/ (free Apple account).
+Game_Porting_Toolkit_*.dmg
+gptk4-b2/
+backup-stock-apple_gptk-CX*/
+
+# Contains Steam auth tickets and signatures.
+localconfig.vdf.bak
+*.vdf
+
+# Crash reports carry LoginId / MachineId / EpicAccountId.
+pre-fix-crash-logs/
+*.log
+
+.DS_Store
