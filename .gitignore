@@ -14,6 +14,6 @@ pre-fix-crash-logs/
 *.log
 
 # Forum/Reddit post drafts — working files, not part of the writeup.
-reddit-post.md
+*-post.md
 
 .DS_Store
