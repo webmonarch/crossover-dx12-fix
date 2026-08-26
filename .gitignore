@@ -13,4 +13,7 @@ localconfig.vdf.bak
 pre-fix-crash-logs/
 *.log
 
+# Forum/Reddit post drafts — working files, not part of the writeup.
+reddit-post.md
+
 .DS_Store
