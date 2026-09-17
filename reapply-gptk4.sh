@@ -53,6 +53,23 @@ cx_running() {
     pgrep -f "$CROSSOVER/Contents/MacOS/CrossOver" >/dev/null 2>&1
 }
 
+# CrossOver's wine looks builtin DLLs up by the PE's *internal* export name.
+# Apple builds nvapi64.dll with the internal name "nvapi.dll", so the loader
+# searches for nvapi.dll / nvapi.so, finds neither, and nvapi64 fails to load
+# (LoadLibrary error 1114, ERROR_DLL_INIT_FAILED). D3DMetal probes exactly that
+# load before switching the adapter from "AMD Compatibility Mode" (vendor
+# 0x1002) to an NVIDIA identity (0x10de), and every DLSS gate downstream -- the
+# UE DLSS plugin, Streamline's sl.dlss_g -- keys off that vendor ID. Aliasing
+# the builtin under the name the loader wants is what turns DLSS on.
+alias_nvapi() {
+    ln -sf nvapi64.dll                       "$GPTK/wine/x86_64-windows/nvapi.dll"
+    ln -sf ../../external/libd3dshared.dylib "$GPTK/wine/x86_64-unix/nvapi.so"
+}
+
+nvapi_aliased() {
+    [ -e "$GPTK/wine/x86_64-windows/nvapi.dll" ] && [ -e "$GPTK/wine/x86_64-unix/nvapi.so" ]
+}
+
 [ -d "$GPTK" ] || die "CrossOver apple_gptk not found: $GPTK"
 
 CXVER="$(defaults read "$CROSSOVER/Contents/Info.plist" CFBundleShortVersionString 2>/dev/null || echo unknown)"
@@ -69,6 +86,8 @@ if [ "$MODE" = "status" ]; then
         "$([ -d "$BACKUP" ] && echo "$(basename "$BACKUP")" || echo 'none for this CrossOver version')"
     printf 'nvngx bridge   %s\n' \
         "$([ -e "$GPTK/wine/x86_64-windows/nvngx.dll" ] && echo present || echo absent)"
+    printf 'nvapi alias    %s\n' \
+        "$(nvapi_aliased && echo present || echo absent)"
     printf 'bottle nvngx   %s\n' \
         "$([ -e "$BOTTLE/drive_c/windows/system32/nvngx.dll" ] && echo present || echo absent)"
     printf 'CrossOver      %s\n' "$(cx_running && echo running || echo 'not running')"
@@ -88,7 +107,12 @@ PAYLOAD_VER="$(d3dmetal_version_at "$HERE/gptk4-b2/lib")"
     || die "payload is D3DMetal $PAYLOAD_VER but WANT=$WANT -- update WANT in this script"
 
 if [ "$CURRENT" = "$WANT" ]; then
-    info "already patched - nothing to do."
+    if nvapi_aliased; then
+        info "already patched - nothing to do."
+    else
+        alias_nvapi
+        info "already patched - added the missing nvapi builtin alias (enables DLSS)."
+    fi
     exit 0
 fi
 
@@ -99,6 +123,7 @@ if [ "$MODE" = "dry-run" ]; then
     info "swap in D3DMetal $WANT from gptk4-b2/lib/"
     info "rename nvngx-on-metalfx.{so,dll} -> nvngx.{so,dll}"
     info "copy nvngx.dll + nvapi64.dll into the Satisfactory bottle's system32"
+    info "alias nvapi.dll/nvapi.so so the loader can start nvapi64 (enables DLSS)"
     exit 0
 fi
 
@@ -131,12 +156,14 @@ ditto "$PAYLOAD/" .
 info "swapped (previous kept in place as external.old / wine.old)"
 
 # Apple's Read Me: enable the experimental DLSS -> MetalFX bridge.
-# Note: does not actually engage for Satisfactory -- see README.md limitations.
 [ -e wine/x86_64-unix/nvngx-on-metalfx.so ] \
     && mv wine/x86_64-unix/nvngx-on-metalfx.so wine/x86_64-unix/nvngx.so
 [ -e wine/x86_64-windows/nvngx-on-metalfx.dll ] \
     && mv wine/x86_64-windows/nvngx-on-metalfx.dll wine/x86_64-windows/nvngx.dll
 info "nvngx bridge enabled"
+
+alias_nvapi
+info "nvapi builtin aliased (nvapi.dll -> nvapi64.dll) so the bridge can load it"
 
 if [ -d "$BOTTLE/drive_c/windows/system32" ]; then
     cp wine/x86_64-windows/nvngx.dll   "$BOTTLE/drive_c/windows/system32/nvngx.dll"
@@ -159,6 +186,6 @@ cat <<EOF
 Done. Before launching:
   - bottle graphics engine must be D3DMetal (not DXVK/DXMT)
   - Steam launch options: -dx12 -NOTEXTURESTREAMING
-First launch rebuilds the shader cache and will be slow. Use FSR or XeSS for
-upscaling; DLSS does not work under D3DMetal. See README.md.
+First launch rebuilds the shader cache and will be slow. DLSS and DLSS-G
+(frame generation) run via MetalFX; FSR and XeSS also work. See README.md.
 EOF
