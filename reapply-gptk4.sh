@@ -158,7 +158,7 @@ cat <<EOF
 
 Done. Before launching:
   - bottle graphics engine must be D3DMetal (not DXVK/DXMT)
-  - Steam launch options: -dx12 -NOTEXTURESTREAMING
+  - Steam launch options: -dx12 [-NOTEXTURESTREAMING]
 First launch rebuilds the shader cache and will be slow. Use FSR or XeSS for
 upscaling; DLSS does not work under D3DMetal. See README.md.
 EOF

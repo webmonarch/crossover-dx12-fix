@@ -123,10 +123,14 @@ DLLs — so the loader falls back cleanly for anything absent.
 ### Steam launch options
 
 ```
--dx12 -NOTEXTURESTREAMING
+-dx12
+```
+and optionally (see below under which conditions this might be useful!)
+```
+-NOTEXTURESTREAMING
 ```
 
-`-dx12` is redundant but explicit. `-NOTEXTURESTREAMING` is the one that matters.
+`-dx12` is redundant but explicit. Beware of `-NOTEXTURESTREAMING` however: This causes Metal to load **all** textures into VRAM and does not allow Unreal Engine to free unused textures. For Satisfactory this usually means a difference of around 8GB in RAM usage. This option can improve performance if your system has sufficient Unified Memory (>=32GB). If the available RAM is too low and macOS must page out memory frequently, it can also have the opposite effect (macOS does **not** know which textures are required, so it may page out the wrong ones). On an M4 Pro with 24GB of Unified Memory, omitting `-NOTEXTURESTREAMING` improved framerates by ~2-4 fps, at the cost of a *very* short stutter when rapidly changing biomes. As a general statement: macOS does not like high memory pressure. Satisfactory itself requires around 10-11GB RAM and about 4-6GB Metal VRAM. Do the calculations whether you can take the additional 8GB on top of that (and leave at least 1.5GB for the system and other apps).
 
 Set via Steam's UI (Properties → General), or directly in
 `.../Steam/userdata/<id>/config/localconfig.vdf` under the `"526870"` block —
