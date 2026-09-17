@@ -112,6 +112,13 @@ Then, still per Apple, to enable the experimental DLSS→MetalFX bridge:
 - `wine/x86_64-windows/nvngx-on-metalfx.dll` → `nvngx.dll`
 - copy `nvngx.dll` and `nvapi64.dll` into the bottle's `windows/system32`
 
+Plus one step of our own, without which the bridge stays inert under CrossOver
+(Apple's Read Me assumes GPTK's own wine build):
+
+- alias `wine/x86_64-windows/nvapi.dll` → `nvapi64.dll` and
+  `wine/x86_64-unix/nvapi.so` → `libd3dshared.dylib` — see
+  [DLSS / DLSS-G status](#dlss--dlss-g-status)
+
 ### Deltas from stock CrossOver
 
 GPTK 4 does **not** ship `atidxx64`, which CrossOver 26.3 does; Apple's
@@ -143,10 +150,20 @@ LogRHI: Using Default RHI: D3D12
 LogD3D12RHI:   Max supported Feature Level 12_2, shader model 6.6,
                binding tier 3, wave ops supported, atomic64 supported
 LogFSR: Successfully initialized FSR Upscaling provider using version '3.1.5'
-LogXeSSRHI: Loading XeSS library 2.0.1 on AMD RHI D3D12 — Intel XeSS effect supported
+LogXeSSRHI: Loading XeSS library 2.0.1 on NVIDIA RHI D3D12 — Intel XeSS effect supported
 ```
 
-and **no** `GGlobalSamplerDescriptorHeapSize` line.
+and **no** `GGlobalSamplerDescriptorHeapSize` line. With the nvapi alias in
+place the adapter identifies as NVIDIA and DLSS lights up too:
+
+```
+LogD3D12RHI: Found D3D12 adapter 0: AMD Compatibility Mode (VendorId: 10de, DeviceId: 66af, ...)
+LogStreamlineAPI: ... [getSystemCaps] NVIDIA driver 561.9
+LogStreamlineAPI: ... [getSystemCaps] Adapter 0 architecture 0x190 implementation 0x4 revision 0xa1 ...
+LogStreamlineAPI: ... Loaded plugin 'sl.dlss_g' - version 2.7.30... - adapter mask 0x1 ...
+LogStreamlineD3D12RHI: Registering FStreamlineD3D12DXGISwapchainProvider ... (kFeatureDLSS_G, Result::eOk)
+LogDLSS: NVIDIA NGX DLSS supported SR=1 RR=1
+```
 
 Log: `<bottle>/drive_c/users/crossover/AppData/Local/FactoryGame/Saved/Logs/FactoryGame.log`
 Crashes: `.../Saved/Crashes/*/CrashContext.runtime-xml` — `<ErrorMessage>` names the assertion.
@@ -156,61 +173,62 @@ That is normal and does not repeat.
 
 ---
 
-## Known limitations
+## DLSS / DLSS-G status
 
-**DLSS does not work.** Despite the `nvngx` step, the log reports:
+**DLSS Super Resolution and DLSS-G frame generation work**, mapped to MetalFX
+by D3DMetal 4 — provided the `nvapi` builtin alias from `reapply-gptk4.sh` is in
+place. Frame generation is 2× only (MetalFX has no 4× multi-frame).
+
+Why the bridge was inert before: D3DMetal only switches the adapter from
+`AMD Compatibility Mode` (vendor `0x1002`) to an NVIDIA identity (`0x10de`)
+after an internal probe succeeds — `nvngx.dll` must exist in the bottle's
+`system32` **and** `LoadLibraryEx("nvapi64", LOAD_LIBRARY_SEARCH_SYSTEM32)` must
+succeed inside the process. Apple builds `nvapi64.dll` with the internal PE name
+`nvapi.dll`; CrossOver's wine derives the builtin lookup from that internal
+name, finds no `nvapi.dll`/`nvapi.so` on disk, and the load dies with error 1114
+(`ERROR_DLL_INIT_FAILED`):
 
 ```
-LogDLSS: NVIDIA NGX DLSS supported SR=0 RR=0
-[streamline] Disabling DLSS-G since it is not supported on current hardware
+find_builtin_dll looking for "nvapi.dll" for file L"...\nvapi64.dll"
+warn:module:find_builtin_dll cannot find builtin library
+warn:module:process_attach Initialization of L"nvapi64.dll" failed
 ```
 
-Almost certainly because D3DMetal presents the GPU as **`AMD Compatibility
-Mode`** (DeviceId `0x66af`), and NGX requires an NVIDIA adapter. The MetalFX
-bridge is documented by Apple as experimental; it does not engage for this title.
+The probe fails, the adapter stays AMD, and everything downstream rejects on
+vendor ID before ever reaching NGX: the UE DLSS plugin logs `NVIDIA NGX DLSS
+requires an NVIDIA RTX series graphics card` (`SR=0 RR=0`) and Streamline logs
+`Disabling DLSS-G since it is not supported on current hardware`.
 
-`SR` is **Super Resolution** (the upscaler) and `RR` is **Ray Reconstruction**
-(the ray-traced denoiser). Neither costs you much here:
+Two symlinks fix it — this is what the script adds:
 
-- **SR** — you have two working substitutes. FSR 3.1 and XeSS 2 are close enough
-  to DLSS 3 that the difference is a matter of taste at equivalent quality
-  presets.
-- **RR** — moot. Satisfactory disables ray tracing at the project level
-  (`LogRendererCore: Ray tracing is disabled. Reason: disabled through project
-  setting (r.RayTracing=0)`), so there is nothing for it to denoise.
-- **DLSS-G** (frame generation) is separately unsupported. FSR does register an
-  `FSRSwapchainProvider`, which is the hook its frame interpolation uses.
+```sh
+cd "$CROSSOVER/Contents/SharedSupport/CrossOver/lib64/apple_gptk"
+ln -sf nvapi64.dll                       wine/x86_64-windows/nvapi.dll
+ln -sf ../../external/libd3dshared.dylib wine/x86_64-unix/nvapi.so
+```
 
-### Is the nvngx bridge worth keeping?
-
-Yes — but understand that it is currently inert, not load-bearing.
-
-Satisfactory ships its own NVIDIA stack (`nvngx_dlss.dll`, `nvngx_dlssd.dll`,
-`nvngx_dlssg.dll`, `sl.*.dll`) and Streamline loads it from the game's own
-`FactoryGame/Plugins/**/Binaries/ThirdParty/Win64` — never from `system32`. The
-`system32` copies Apple's Read Me calls for are also redundant under CrossOver,
-which already exposes `apple_gptk`'s DLLs to the loader; that the `d3d12.dll`
-swap works at all, with nothing copied into `system32`, proves the path exists.
-
-Keep it anyway. It costs ~100 ms of failed Streamline init at startup and some
-log noise, it's Apple's documented procedure, and it is the zero-effort path to
-DLSS simply starting to work if a later D3DMetal fixes the adapter vendor
-reporting. Removing it buys nothing.
-
-Not worth chasing: making D3DMetal spoof an NVIDIA vendor ID to satisfy NGX.
-That is fighting the translation layer for an upscaler you already have two
-working substitutes for.
-
-**Use FSR or XeSS instead** — both initialize cleanly and are the right
-upscaler choice here:
+With nvapi64 loading, D3DMetal advertises vendor `0x10de` and its NVAPI shim
+reports an Ada-class GPU (arch `0x190`, driver 561.09) — above every Streamline
+and NGX minimum. CrossOver 26's wine also reports hardware-accelerated GPU
+scheduling (HAGS) as enabled via `D3DKMTQueryAdapterInfo(WDDM_2_7_CAPS)`, so
+`sl.dlss_g`'s OS check passes as well. NGX loads Apple's `system32/nvngx.dll` as
+its core, so those `system32` copies are load-bearing, not inert.
 
 | Upscaler | Status |
 |---|---|
-| FSR | ✅ 3.1.5, initializes and runs |
+| FSR | ✅ 3.1.5 |
 | XeSS | ✅ 2.0.10 (library 2.0.1) |
-| DLSS Super Resolution | ❌ `SR=0` |
-| DLSS Ray Reconstruction | ❌ `RR=0` — irrelevant, the game ships with RT off |
-| DLSS-G / frame gen | ❌ unsupported on this adapter |
+| DLSS Super Resolution | ✅ `SR=1`, runs on MetalFX |
+| DLSS Ray Reconstruction | ✅ reported `RR=1` — moot, the game ships with RT off |
+| DLSS-G / frame gen | ✅ 2× frame generation via MetalFX |
+
+**DLSS noise that is benign:** failed `nvngx_update.exe` OTA launches,
+`NvAPI_D3D12_SetFlipConfig() returned -1`, `_nvngx.dll` load errors before
+`nvngx.dll` succeeds, and the adapter *name* still reading `AMD Compatibility
+Mode` (DeviceId `0x66af`) — only the vendor ID is switched, and the vendor ID is
+what every check uses.
+
+## Known limitations
 
 **Benign noise.** `[GPUBreadCrumb] Failed to OpenExistingHeapFromAddress, error:
 80004001` (`E_NOTIMPL`) appears at startup and is harmless — it's UE's crash
@@ -234,7 +252,7 @@ D3DMetal environment variables, set per-bottle in `cxbottle.conf` under
 | Variable | Default | Notes |
 |---|---|---|
 | `D3DM_SUPPORT_DXR` | **on** for M3+ | DirectX Raytracing translation. **First thing to set to `0`** if DX12 misbehaves. |
-| `D3DM_ENABLE_METALFX` | off | Already `1` here. Maps DLSS→MetalFX where possible — see limitations. |
+| `D3DM_ENABLE_METALFX` | off | Already `1` here. Required for the DLSS→MetalFX bridge. |
 | `D3DM_MTL4` | on, **macOS 27+ only** | Metal 4 backend. Irrelevant on macOS 26 — you get the Metal 3 backend no matter what the GPU advertises. |
 | `D3DM_MAX_FPS` | unset | Frame rate cap. |
 | `ROSETTA_ADVERTISE_AVX` | off | Advertise AVX to translated code. |
