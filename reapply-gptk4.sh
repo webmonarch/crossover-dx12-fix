@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Apply Apple's Game Porting Toolkit 4 (D3DMetal 4.0b2) to CrossOver.
+# Apply Apple's Game Porting Toolkit 4 (D3DMetal 4.0b3) to CrossOver.
 #
 # CrossOver 26.3 ships D3DMetal 3.0, under which UE 5.6 titles (Satisfactory,
 # StarRupture) die during renderer init with:
@@ -12,7 +12,7 @@
 # initializes. Every CrossOver update reverts the swap -- re-run this script.
 #
 # The procedure is Apple's own, from the Read Me inside the GPTK 4 disk image
-# (vendored alongside this script as gptk4-b2/Apple-ReadMe.rtf).
+# (vendored alongside this script as gptk4-b3/Apple-ReadMe.rtf).
 #
 # Usage:
 #   ./reapply-gptk4.sh              apply (idempotent)
@@ -26,11 +26,11 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PAYLOAD="$HERE/gptk4-b2/lib"
+PAYLOAD="$HERE/gptk4-b3/lib"
 CROSSOVER="/Applications/CrossOver.app"
 GPTK="$CROSSOVER/Contents/SharedSupport/CrossOver/lib64/apple_gptk"
 BOTTLE="$HOME/Library/Application Support/CrossOver/Bottles/Satisfactory"
-WANT="4.0b2"
+WANT="4.0b3"
 
 MODE="apply"
 case "${1:-}" in
@@ -64,7 +64,7 @@ if [ "$MODE" = "status" ]; then
     printf 'CrossOver      %s\n' "$CXVER"
     printf 'D3DMetal       %s   (want %s)\n' "$CURRENT" "$WANT"
     printf 'payload        %s\n' \
-        "$([ -d "$PAYLOAD" ] && d3dmetal_version_at "$HERE/gptk4-b2/lib" || echo 'MISSING')"
+        "$([ -d "$PAYLOAD" ] && d3dmetal_version_at "$PAYLOAD" || echo 'MISSING')"
     printf 'stock backup   %s\n' \
         "$([ -d "$BACKUP" ] && echo "$(basename "$BACKUP")" || echo 'none for this CrossOver version')"
     printf 'nvngx bridge   %s\n' \
@@ -83,7 +83,7 @@ fi
 info "CrossOver $CXVER, D3DMetal $CURRENT (want $WANT)"
 
 [ -d "$PAYLOAD" ] || die "payload missing: $PAYLOAD (see 'Upgrading the payload' in README.md)"
-PAYLOAD_VER="$(d3dmetal_version_at "$HERE/gptk4-b2/lib")"
+PAYLOAD_VER="$(d3dmetal_version_at "$PAYLOAD")"
 [ "$PAYLOAD_VER" = "$WANT" ] \
     || die "payload is D3DMetal $PAYLOAD_VER but WANT=$WANT -- update WANT in this script"
 
@@ -96,7 +96,7 @@ if [ "$MODE" = "dry-run" ]; then
     step "would do:"
     cx_running && info "quit CrossOver"
     [ -d "$BACKUP" ] || info "back up stock apple_gptk (D3DMetal $CURRENT) -> $(basename "$BACKUP")"
-    info "swap in D3DMetal $WANT from gptk4-b2/lib/"
+    info "swap in D3DMetal $WANT from ${PAYLOAD#"$HERE/"}/"
     info "rename nvngx-on-metalfx.{so,dll} -> nvngx.{so,dll}"
     info "copy nvngx.dll + nvapi64.dll into the Satisfactory bottle's system32"
     exit 0
